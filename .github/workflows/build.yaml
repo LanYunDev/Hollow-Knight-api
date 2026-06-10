@@ -2,12 +2,6 @@ name: build-macos-arm64
 
 on:
   workflow_dispatch:
-    inputs:
-      ref:
-        description: "The git ref to checkout"
-        required: true
-        default: main
-
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -15,23 +9,14 @@ jobs:
       RID: osx-arm64
 
     steps:
-      # Checkout this repo
       - name: Checkout Source
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.inputs.ref }}
 
       - name: Prepare Managed DLLs
         run: |
           mkdir -p Vanilla/Managed
           cp -R Managed/* Vanilla/Managed/
-
-      # Copy Managed DLLs to the expected location
-      - name: Prepare Managed DLLs
-        run: |
-          mkdir -p Vanilla/Managed
-          cp Hollow-Knight-api/Managed/* Vanilla/Managed/
-
+          
       # Setup .NET
       - uses: actions/setup-dotnet@v4
 
