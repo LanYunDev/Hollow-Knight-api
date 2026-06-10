@@ -1,89 +1,78 @@
-name: build
+name: build-macos-arm64
 
 on:
-  workflow_call:
-    secrets:
-      BINARY_ARCHIVE_DEPLOY_KEY:
-        description: Deploy key to read from the binary archive repository.
-        required: true
+  workflow_dispatch:
     inputs:
       ref:
-        description: The ref to checkout.
+        description: "The git ref to checkout"
         required: true
-        type: string
-      upload-artifact:
-        description: Whether artifacts should be uploaded.
-        default: false
-        type: boolean
+        default: main
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        platform: [windows, macos, linux]
-        archive-ref: [main]
+    env:
+      RID: osx-arm64
+
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.ref }}
-          persist-credentials: false
-      
-      - name: Read Versions
-        run: |
-          HKV=$(cat ./hollowknight.version)
-          echo "HK_VERSION=$HKV" >> $GITHUB_ENV
-      
-      - name: Checkout Binaries
+      # Checkout this repo
+      - name: Checkout Source
         uses: actions/checkout@v4
         with:
-          repository: hk-modding/hk-binary-archives
-          ref: ${{ matrix.archive-ref }}
-          ssh-key: ${{ secrets.BINARY_ARCHIVE_DEPLOY_KEY }}
-          sparse-checkout: |
-            ${{ env.HK_VERSION }}/managed.${{ matrix.platform }}.tar.gz
-          sparse-checkout-cone-mode: false
-          path: ./hk-binary-archives
-          persist-credentials: false
-      
-      - name: Unpack Archive
-        run: |
-          mkdir Vanilla
-          cd ./Vanilla
-          tar -xzf ../hk-binary-archives/${{ env.HK_VERSION }}/managed.${{ matrix.platform }}.tar.gz
+          ref: ${{ github.event.inputs.ref }}
 
-      - name: Set RID
+      # Checkout Managed DLLs from your Hollow-Knight-api repo
+      - name: Checkout Managed DLLs
+        uses: actions/checkout@v4
+        with:
+          repository: LanYunDev/Hollow-Knight-api
+          ref: main
+          path: Hollow-Knight-api
+
+      # Copy Managed DLLs to the expected location
+      - name: Prepare Managed DLLs
         run: |
-          case "${{ matrix.platform }}" in
-            windows) echo "RID=win-x64" >> $GITHUB_ENV ;;
-            linux) echo "RID=linux-x64" >> $GITHUB_ENV ;;
-            macos) echo "RID=osx-x64" >> $GITHUB_ENV ;;
-          esac
-      
+          mkdir -p Vanilla/Managed
+          cp Hollow-Knight-api/Managed/* Vanilla/Managed/
+
+      # Setup .NET
       - uses: actions/setup-dotnet@v4
+
       - name: Setup MSBuild
         run: |
-          sudo apt-get update -y
+          sudo apt-get update
           sudo apt-get install -y mono-devel
+
+      # Restore NuGet dependencies
       - name: Restore Dependencies
-        run: |
-          dotnet restore
+        run: dotnet restore
+
+      # Build PrePatcher
       - name: Build PrePatcher
-        run: |
-          dotnet build PrePatcher -o PrePatcher/Output -p:Configuration=Release
+        run: dotnet build PrePatcher -c Release -o PrePatcher/Output
+
+      # Build Assembly-CSharp targeting macOS ARM64
       - name: Build Assembly-CSharp
-        run: |
-          dotnet build Assembly-CSharp --runtime $RID -p:Configuration=Release
+        run: dotnet build Assembly-CSharp -c Release -r $RID
+
+      # Merge macOS dylibs
       - name: Merge osx dylibs
-        if: matrix.platform == 'macos'
         run: |
           wget https://github.com/konoui/lipo/releases/download/v0.9.4/lipo_linux_amd64 -O lipo
           chmod +x lipo
-          ./lipo -output libunityscenerepacker.dylib -create ./Assembly-CSharp/packages/unityscenerepacker/2.4.0/runtimes/osx-*/native/libunityscenerepacker.dylib
+
+          mkdir -p OutputFinal
+          ./lipo \
+            -output libunityscenerepacker.dylib \
+            -create \
+            ./Assembly-CSharp/packages/unityscenerepacker/2.4.0/runtimes/osx-*/native/libunityscenerepacker.dylib
+
           mv libunityscenerepacker.dylib OutputFinal/
-      - name: Upload Binary
-        if: inputs.upload-artifact
+
+      # Upload build artifact
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: build.${{ matrix.platform }}
-          path: ./OutputFinal/
+          name: macos-arm64-build
+          path: OutputFinal/
+          retention-days: 30
