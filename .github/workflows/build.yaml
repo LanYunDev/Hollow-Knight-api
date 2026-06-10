@@ -21,13 +21,10 @@ jobs:
         with:
           ref: ${{ github.event.inputs.ref }}
 
-      # Checkout Managed DLLs from your Hollow-Knight-api repo
-      - name: Checkout Managed DLLs
-        uses: actions/checkout@v4
-        with:
-          repository: LanYunDev/Hollow-Knight-api
-          ref: main
-          path: Hollow-Knight-api
+      - name: Prepare Managed DLLs
+        run: |
+          mkdir -p Vanilla/Managed
+          cp -R Managed/* Vanilla/Managed/
 
       # Copy Managed DLLs to the expected location
       - name: Prepare Managed DLLs
